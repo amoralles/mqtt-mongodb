@@ -5,3 +5,5 @@ writeJSON.py
 .vscode
 myenv
 pymongoarrow-teste.py
+infos_sensiveis.py
+*.json
