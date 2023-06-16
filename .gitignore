@@ -7,3 +7,4 @@ myenv
 pymongoarrow-teste.py
 infos_sensiveis.py
 *.json
+__pycache__

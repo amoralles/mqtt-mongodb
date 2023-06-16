@@ -2,9 +2,10 @@ from datetime import datetime
 from bson import json_util
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
+import infos_sensiveis
 
 #Configuração do MongoDB:
-uri = "mongodb+srv://camorallesb:YnCix2LRJCDIJ5zk@cluster0.7kjdqt7.mongodb.net/?retryWrites=true&w=majority"
+uri = infos_sensiveis.uri_mdb
 
 # Create a new client and connect to the server
 client_db = MongoClient(uri, server_api=ServerApi('1'))
