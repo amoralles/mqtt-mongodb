@@ -4,18 +4,19 @@ import json
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from datetime import datetime
+import infos_sensiveis
 
 # Configurações do MQTT Broker
-broker_address = "c70e89f631f4472194a8a7cb223c5841.s2.eu.hivemq.cloud"
-port = 8883
-topic = "esp100001/send"
+broker_address = infos_sensiveis.broker_address
+port = infos_sensiveis.port_broker
+topic = infos_sensiveis.topic_mqtt
 
 # Configurações do dispositivo
 app_id = topic.split("/")[0]
 service_id = topic.split("/")[1]
 
 #Configuração do MongoDB:
-uri = "mongodb+srv://camorallesb:YnCix2LRJCDIJ5zk@cluster0.7kjdqt7.mongodb.net/?retryWrites=true&w=majority"
+uri = infos_sensiveis.uri_mdb
 
 # Create a new client and connect to the server
 client_db = MongoClient(uri, server_api=ServerApi('1'))

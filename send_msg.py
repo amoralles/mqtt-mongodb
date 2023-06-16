@@ -2,11 +2,12 @@ import paho.mqtt.client as paho
 from paho import mqtt
 import random
 import time
+import infos_sensiveis
 
 # Configurações do MQTT Broker
-broker_address = "c70e89f631f4472194a8a7cb223c5841.s2.eu.hivemq.cloud"
-port = 8883
-topic = "esp100001/send"
+broker_address = infos_sensiveis.broker_address
+port = infos_sensiveis.port_broker
+topic = infos_sensiveis.topic_mqtt
 
 # Configurações do dispositivo
 device_id = "disp1"
@@ -43,6 +44,8 @@ client.on_connect = on_connect
 client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
 
 # Define user e senha
+user = infos_sensiveis.user_mqtt
+password = infos_sensiveis.password_mqtt
 client.username_pw_set("temper", "Teste001")
 
 # Conecta ao MQTT Broker
@@ -54,7 +57,7 @@ client.on_message = on_message
 client.on_publish = on_publish
 
 # Se inscreve nos tópicos
-client.subscribe("temperatura/teste", qos = 1)
+client.subscribe(topic, qos = 1)
 
 # Loop principal
 client.loop_start()
