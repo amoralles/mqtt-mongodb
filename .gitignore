@@ -2,4 +2,6 @@ config.py
 pymongoarrow-teste.py
 teste.py
 writeJSON.py
-
+.vscode
+myenv
+pymongoarrow-teste.py
