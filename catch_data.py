@@ -6,6 +6,7 @@ import infos_sensiveis
 import pytz
 import paho.mqtt.client as paho
 from paho import mqtt
+import json
 
 # functions:
 
@@ -35,14 +36,13 @@ def catch_files(start_time, end_time, date_day):
 
     # Cria um filtro para os documentos dentro do intervalo de tempo desejado
     filter = {"send.timestamp": {"$gte": start_time_iso, "$lte": end_time_iso}}
-    #filter = {"send.timestamp": {"$gte": "2023-06-19T14:45:00Z", "$lte": "2023-06-19T14:49:00Z"}}
-    print("Filtro: ", filter)
     
     # Executa a consulta no banco de dados
     documents = list(collection.find(filter))
     print(len(documents)," arquivos encontrados.")
 
     # Salva os documentos em um arquivo JSON
+    global filename
     filename = "files_{}_{}.json".format(start_time.strftime("%Y-%m-%dT%H-%M-%SZ"), end_time.strftime("%Y-%m-%dT%H-%M-%SZ"))
     with open(filename, "w") as file:
         for document in documents:
@@ -51,6 +51,8 @@ def catch_files(start_time, end_time, date_day):
             file.write("\n")
     
     print("Arquivo salvo com sucesso.")
+
+    return filename
 
 # Separa a mensagem recebida em intervalo de data para consulta
 def format_date(msg_request):
@@ -72,11 +74,16 @@ def format_date(msg_request):
             datetime_final = date +" " + time2
             datetime_final_format = datetime.strptime(datetime_final, formato)
 
- 
             return date, datetime_inicial_format, datetime_final_format
         
         except ValueError:
             print("Formato de data e hora inválido. Tente novamente.")
+
+def read_json_file(filename):
+    global content
+    with open(filename, 'r') as file:
+        content = file.read()
+    return content
 
 # Confgurações do Banco de Dados:
 uri = infos_sensiveis.uri_mdb
@@ -95,7 +102,6 @@ except Exception as e:
 broker_address = infos_sensiveis.broker_address
 port = infos_sensiveis.port_broker
 topic_request = "+/request"
-topic_response = "+/response"
 
 # Função de callback chamada quando a conexão ao broker é estabelecida
 def on_connect(client, userdata,flags, rc, properties=None):
@@ -104,7 +110,7 @@ def on_connect(client, userdata,flags, rc, properties=None):
 
 # callback para verificar se a publicação foi bem sucedida:
 def on_publish(client, userdata, mid, properties=None):
-    print("mid: " + str(mid))
+    print("Publicado em " + topic_response + ": " + filename)
 
 # Printa em qual tópico se inscreveu
 def on_subscribe(client, userdata, mid, granted_qos, properties=None):
@@ -112,15 +118,27 @@ def on_subscribe(client, userdata, mid, granted_qos, properties=None):
 
 # Lida com a mensagem recebida
 def on_message(client, userdata, msg):
+    # Obtém o tópico que enviou a resposta em "+/request"
+    global first_level
+    topic_parts = msg.topic.split('/')
+    first_level = topic_parts[0]
+
     global payload, date_day
     payload = msg.payload.decode()
-    print("Request recebida: ", payload)
+    print("Request enviada por: ", first_level, "\nMensagem: ", payload)
  
     #define o intervalo solicitado:
     date_day, datetime_inicial, datetime_final = format_date(payload)
 
     # Consulta o DB e filtra os arquivos solicitados:
-    catch_files(datetime_inicial, datetime_final, date_day)
+    filename = catch_files(datetime_inicial, datetime_final, date_day)
+
+    global topic_response
+    topic_response = "{}/response".format(first_level)
+
+    read_json_file(filename)
+
+    client.publish(topic_response, content)      
 
 # Cria um cliente MQTT
 client = paho.Client(client_id="", userdata=None, protocol=paho.MQTTv5)
@@ -139,7 +157,6 @@ client.connect(broker_address, port=port)
 
 # Definição do DB 
 db= client_db['BancoTeste2']
-
 
 # Define as funções de callback
 client.on_subscribe = on_subscribe
