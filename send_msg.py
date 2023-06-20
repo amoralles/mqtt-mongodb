@@ -1,40 +1,126 @@
+from datetime import datetime
+from bson import json_util
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
+import infos_sensiveis
+import pytz
 import paho.mqtt.client as paho
 from paho import mqtt
-import random
-import time
-import infos_sensiveis
 
-# Configurações do MQTT Broker
+# functions:
+
+# Converte a Data e Hora do horário BR para o horário Padrão UTC
+def br_to_utc(dt):
+    br_timezone = pytz.timezone('America/Sao_Paulo')
+    utc_timezone = pytz.utc
+    dt_br = br_timezone.localize(dt)
+    dt_utc = dt_br.astimezone(utc_timezone)
+    return dt_utc
+
+# Consulta a base de dados em um dado intervalo:
+def catch_files(start_time, end_time, date_day):
+    # Muda o timezone de BR para UTC
+    start_time_utc = br_to_utc(start_time)
+    end_time_utc = br_to_utc(end_time)
+
+    #Converte as datas para strings no formato ISO8601
+    start_time_iso = start_time_utc.isoformat() + "Z"
+    end_time_iso = end_time_utc.isoformat() + "Z"  
+    
+    #conecta com a collection:
+    formato = "%d/%m/%Y"
+    date_format = datetime.strptime(date_day, formato).date()
+    collection_today = f"medidas_{date_format}"
+    collection = db[collection_today]
+
+    # Cria um filtro para os documentos dentro do intervalo de tempo desejado
+    filter = {"send.timestamp": {"$gte": start_time_iso, "$lte": end_time_iso}}
+    #filter = {"send.timestamp": {"$gte": "2023-06-19T14:45:00Z", "$lte": "2023-06-19T14:49:00Z"}}
+    print("Filtro: ", filter)
+    
+    # Executa a consulta no banco de dados
+    documents = list(collection.find(filter))
+    print(len(documents)," arquivos encontrados.")
+
+    # Salva os documentos em um arquivo JSON
+    filename = "files_{}_{}.json".format(start_time.strftime("%Y-%m-%dT%H-%M-%SZ"), end_time.strftime("%Y-%m-%dT%H-%M-%SZ"))
+    with open(filename, "w") as file:
+        for document in documents:
+            json_data = json_util.dumps(document)
+            file.write(json_data)
+            file.write("\n")
+    
+    print("Arquivo salvo com sucesso.")
+
+# Separa a mensagem recebida em intervalo de data para consulta
+def format_date(msg_request):
+
+    while True:
+        formato = "%d/%m/%Y %H:%M"
+        
+        # Separar a entrada pelo espaço em branco
+        parts = msg_request.split(" ")
+
+        # Obter o dia, a primeira hora e a segunda hora
+        date = parts[0]
+        time1, time2 = parts[1].split("-")
+
+        try:
+            date_day = date.replace("/","-")
+            datetime_inicial = date +" " + time1
+            datetime_inicial_format = datetime.strptime(datetime_inicial, formato)
+            datetime_final = date +" " + time2
+            datetime_final_format = datetime.strptime(datetime_final, formato)
+
+ 
+            return date, datetime_inicial_format, datetime_final_format
+        
+        except ValueError:
+            print("Formato de data e hora inválido. Tente novamente.")
+
+# Confgurações do Banco de Dados:
+uri = infos_sensiveis.uri_mdb
+
+# Create a new client and connect to the server
+client_db = MongoClient(uri, server_api=ServerApi('1'))
+
+# Send a ping to confirm a successful connection
+try:
+    client_db.admin.command('ping')
+    print("Pinged your deployment. You successfully connected to MongoDB!")
+except Exception as e:
+    print(e)
+
+# Configuração do MQTT Broker:
 broker_address = infos_sensiveis.broker_address
 port = infos_sensiveis.port_broker
-topic = infos_sensiveis.topic_mqtt
-
-# Configurações do dispositivo
-device_id = "disp1"
+topic_request = "+/request"
+topic_response = "+/response"
 
 # Função de callback chamada quando a conexão ao broker é estabelecida
 def on_connect(client, userdata,flags, rc, properties=None):
-    print("Conectado ao MQTT Broker.")
+    print("Conectado ao MQTT Broker")
     print("Código de resultado de conexão: " + str(rc))
 
 # callback para verificar se a publicação foi bem sucedida:
 def on_publish(client, userdata, mid, properties=None):
     print("mid: " + str(mid))
 
-# Função para publicar a temperatura no tópico MQTT
-def publish_temperature(client):
-    temperature = round(random.uniform(0, 2),2)  # Simula uma temperatura entre 20°C e 30°C
-    payload = "current=" + str(temperature) +",frequency=4.06"
-    client.publish(topic, payload)
-    print("Publicado: " + payload)
-
 # Printa em qual tópico se inscreveu
 def on_subscribe(client, userdata, mid, granted_qos, properties=None):
     print("Subscribed: " + str(mid) + " " + str(granted_qos))
 
-# Printa uma mensagem, útil para checar se a conexão foi bem sucedida
+# Lida com a mensagem recebida
 def on_message(client, userdata, msg):
-    print(msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
+    global payload, date_day
+    payload = msg.payload.decode()
+    print("Request recebida: ", payload)
+ 
+    #define o intervalo solicitado:
+    date_day, datetime_inicial, datetime_final = format_date(payload)
+
+    # Consulta o DB e filtra os arquivos solicitados:
+    catch_files(datetime_inicial, datetime_final, date_day)
 
 # Cria um cliente MQTT
 client = paho.Client(client_id="", userdata=None, protocol=paho.MQTTv5)
@@ -46,10 +132,14 @@ client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
 # Define user e senha
 user = infos_sensiveis.user_mqtt
 password = infos_sensiveis.password_mqtt
-client.username_pw_set("temper", "Teste001")
+client.username_pw_set(infos_sensiveis.user_mqtt, infos_sensiveis.password_mqtt)
 
 # Conecta ao MQTT Broker
 client.connect(broker_address, port=port)
+
+# Definição do DB 
+db= client_db['BancoTeste2']
+
 
 # Define as funções de callback
 client.on_subscribe = on_subscribe
@@ -57,22 +147,8 @@ client.on_message = on_message
 client.on_publish = on_publish
 
 # Se inscreve nos tópicos
-client.subscribe(topic, qos = 1)
+client.subscribe(topic_request, qos = 1)
 
 # Loop principal
-client.loop_start()
-
-try:
-    while True:
-        publish_temperature(client)
-        time.sleep(15)  # Publica a temperatura a cada 5 segundos
-
-except KeyboardInterrupt:
-    pass
-
-#client.loop_forever()
-
-# Encerra o loop e desconecta do MQTT Broker
-#client.loop_stop()
-#client.disconnect()
+client.loop_forever()
 
