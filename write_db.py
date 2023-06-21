@@ -115,15 +115,18 @@ def salvar_mensagem(payload, app_id, service_id):
     #converte em formato json:
     json_data = json.dumps(data)
 
-    #Salva o objeto JSON em um arquivo individual:
+    #Salva o objeto JSON em um arquivo individual localmente:
     filename = "{}_{}.json".format(app_id, timestamp.strftime("%Y-%m-%dT%H-%M-%SZ"))
-    with open(filename,"w") as file:
-        file.write(json_data)
+    #with open(filename,"w") as file:
+    #    file.write(json_data)
     
-    # Salva no db
-    with open(filename) as file:
-        output = json.load(file)
-        collection.insert_one(output)
+    # Salva o arquivo local no db
+    # with open(filename) as file:
+        # output = json.load(file)
+        # collection.insert_one(output)
+
+    # envia as informações diretamente ao db sem salvar localmente.
+    collection.insert_one(data)
 
 # Printa em qual tópico se inscreveu
 def on_subscribe(client, userdata, mid, granted_qos, properties=None):
