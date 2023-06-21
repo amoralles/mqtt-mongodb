@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import json_util
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
@@ -8,8 +8,6 @@ import paho.mqtt.client as paho
 from paho import mqtt
 import json
 
-# functions:
-
 # Converte a Data e Hora do horário BR para o horário Padrão UTC
 def br_to_utc(dt):
     br_timezone = pytz.timezone('America/Sao_Paulo')
@@ -18,28 +16,74 @@ def br_to_utc(dt):
     dt_utc = dt_br.astimezone(utc_timezone)
     return dt_utc
 
+# Lê arquivos json
+def read_json_file(filename):
+    global content
+    with open(filename, 'r') as file:
+        content = file.read()
+    return content
+
+# Função para extrair o intervalo de tempo da msg
+def time_interval(msg):
+    partes = msg.split()
+    global start_time, end_time, interval
+    if len(partes) == 2:
+        quantidade = int(partes[0])
+        unidade = partes[1].lower()
+        if unidade == "min" or unidade == "minutos" or unidade == "minuto":
+            interval = timedelta(minutes=quantidade)
+        elif unidade == "hora" or unidade == "horas":
+            interval =  timedelta(hours=quantidade)
+        elif unidade == "dia" or unidade == "dias":
+            interval = timedelta(days=quantidade)  
+    end_time = datetime.now()
+    start_time = end_time - interval
+
+    return interval, start_time, end_time
+
 # Consulta a base de dados em um dado intervalo:
-def catch_files(start_time, end_time, date_day):
+def catch_files(start_time, end_time):
     # Muda o timezone de BR para UTC
     start_time_utc = br_to_utc(start_time)
     end_time_utc = br_to_utc(end_time)
+
+    # Seleciona o dia de início e fim do intervalo.
+    start_date = start_time_utc.date()
+    end_date = end_time_utc.date()
 
     #Converte as datas para strings no formato ISO8601
     start_time_iso = start_time_utc.isoformat() + "Z"
     end_time_iso = end_time_utc.isoformat() + "Z"  
     
-    #conecta com a collection:
-    formato = "%d/%m/%Y"
-    date_format = datetime.strptime(date_day, formato).date()
-    collection_today = f"medidas_{date_format}"
-    collection = db[collection_today]
-
-    # Cria um filtro para os documentos dentro do intervalo de tempo desejado
-    filter = {"send.timestamp": {"$gte": start_time_iso, "$lte": end_time_iso}}
     
-    # Executa a consulta no banco de dados
-    documents = list(collection.find(filter))
-    print(len(documents)," arquivos encontrados.")
+    #conecta com a collection e recupera os dados:
+    if start_date == end_date:
+        collection_today = f"medidas_{start_date}"
+        collection = db[collection_today]
+
+        # Cria um filtro para os documentos dentro do intervalo de tempo desejado
+        filter = {"send.timestamp": {"$gte": start_time_iso, "$lte": end_time_iso}}
+    
+        documents = list(collection.find(filter))
+        print(len(documents)," arquivos encontrados.")
+    else:
+        collection_start = f"medidas_{start_date}"
+        collection1 = db[collection_start]
+
+        collection_end = f"medidas{end_date}"
+        collection2 = db[collection_end]
+
+        #Cria os filtos utilizados em cada cosulta:
+        filter1 = {"send.timestamp": {"$gte": start_time_iso}}
+        filter2 = {"send.timestamp": {"$lte": end_time_iso}}
+
+        #Faz as consultas:
+        documents1 = list(collection1.find(filter1))
+        documents2 = list(collection2.find(filter2))
+
+        #Concatena todos os arquivos encotrados:
+        documents = documents1 + documents2
+        print(len(documents)," arquivos encontrados.")
 
     # Salva os documentos em um arquivo JSON
     global filename
@@ -54,36 +98,6 @@ def catch_files(start_time, end_time, date_day):
 
     return filename
 
-# Separa a mensagem recebida em intervalo de data para consulta
-def format_date(msg_request):
-
-    while True:
-        formato = "%d/%m/%Y %H:%M"
-        
-        # Separar a entrada pelo espaço em branco
-        parts = msg_request.split(" ")
-
-        # Obter o dia, a primeira hora e a segunda hora
-        date = parts[0]
-        time1, time2 = parts[1].split("-")
-
-        try:
-            date_day = date.replace("/","-")
-            datetime_inicial = date +" " + time1
-            datetime_inicial_format = datetime.strptime(datetime_inicial, formato)
-            datetime_final = date +" " + time2
-            datetime_final_format = datetime.strptime(datetime_final, formato)
-
-            return date, datetime_inicial_format, datetime_final_format
-        
-        except ValueError:
-            print("Formato de data e hora inválido. Tente novamente.")
-
-def read_json_file(filename):
-    global content
-    with open(filename, 'r') as file:
-        content = file.read()
-    return content
 
 # Confgurações do Banco de Dados:
 uri = infos_sensiveis.uri_mdb
@@ -128,10 +142,10 @@ def on_message(client, userdata, msg):
     print("Request enviada por: ", first_level, "\nMensagem: ", payload)
  
     #define o intervalo solicitado:
-    date_day, datetime_inicial, datetime_final = format_date(payload)
+    interval, datetime_inicial, datetime_final = time_interval(payload)
 
     # Consulta o DB e filtra os arquivos solicitados:
-    filename = catch_files(datetime_inicial, datetime_final, date_day)
+    filename = catch_files(datetime_inicial, datetime_final)
 
     global topic_response
     topic_response = "{}/response".format(first_level)
@@ -168,4 +182,3 @@ client.subscribe(topic_request, qos = 1)
 
 # Loop principal
 client.loop_forever()
-
