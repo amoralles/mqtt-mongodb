@@ -31,13 +31,22 @@ db= client_db['BancoTeste2']
 collection = db['Users_info']
 
 # Função que Solicita o load
-def ask_for_load():
+def ask_for_load(first_level):
     #Arquivo load pré existe no banco de dados com infos do usuário
     # Seleciona o load para aquele app
-    filter = {"user": "app00001"}#{first_level}}
-    file_load = collection.find(filter)
+    filter = {"user": first_level}
+    file_load = collection.find_one(filter)
 
-    return file_load
+    if file_load:
+        filename = "load.json"
+        with open(filename, "w") as file:
+            json_data = json_util.dumps(file_load)
+            file.write(json_data)
+
+        return filename
+    else:
+        print('Arquivo load não encontrado para a aplicação', first_level)
+        return None
 
 # Lê arquivos json
 def read_json_file(filename):
@@ -76,9 +85,9 @@ def on_message(client, userdata, msg):
 
     if str(payload) == str(0):
         #Recupera o arquivo load do banco de dados
-        load = ask_for_load()
-        if load:
-            content = str(load)
+        filename = ask_for_load(first_level)
+        if filename:
+            content = read_json_file(filename)
             client.publish(topic_response, content) 
         else:
             ('Arquivo load não encontrado para a aplicação ', first_level)
