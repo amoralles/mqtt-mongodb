@@ -23,6 +23,10 @@ def read_json_file(filename):
         content = file.read()
     return content
 
+def msg_decoder(payload):   
+    data = json.loads(payload)
+    return data
+
 # Função para extrair o intervalo de tempo da msg
 def time_interval(msg):
     partes = msg.split()
@@ -39,7 +43,18 @@ def time_interval(msg):
     end_time = datetime.now()
     start_time = end_time - interval
 
-    return interval, start_time, end_time
+    return start_time, end_time
+
+def get_collection_names(start_date, end_date):
+    collection_names = []
+    current_date = start_date
+    
+    while current_date <= end_date:
+        collection_name = f'medidas_{current_date}'
+        collection_names.append(collection_name)
+        current_date += timedelta(days=1)
+    
+    return collection_names
 
 # Consulta a base de dados em um dado intervalo:
 def catch_files(start_time, end_time):
@@ -67,22 +82,16 @@ def catch_files(start_time, end_time):
         documents = list(collection.find(filter))
         print(len(documents)," arquivos encontrados.")
     else:
-        collection_start = f"medidas_{start_date}"
-        collection1 = db[collection_start]
+        #no caso de ser necessário acessar mais de uma collection para recuperar as ultimas informações:
+        collection_names = get_collection_names(start_date, end_date)
 
-        collection_end = f"medidas{end_date}"
-        collection2 = db[collection_end]
+        documents = []
 
-        #Cria os filtos utilizados em cada cosulta:
-        filter1 = {"send.timestamp": {"$gte": start_time_iso}}
-        filter2 = {"send.timestamp": {"$lte": end_time_iso}}
-
-        #Faz as consultas:
-        documents1 = list(collection1.find(filter1))
-        documents2 = list(collection2.find(filter2))
-
-        #Concatena todos os arquivos encotrados:
-        documents = documents1 + documents2
+        for collection_name in collection_names:
+            collection = db[collection_name]
+            document = list(collection.find())
+            documents = documents + document
+        
         print(len(documents)," arquivos encontrados.")
 
     # Salva os documentos em um arquivo JSON
@@ -139,10 +148,13 @@ def on_message(client, userdata, msg):
 
     global payload, date_day
     payload = msg.payload.decode()
-    print("Request enviada por: ", first_level, "\nMensagem: ", payload)
+
+    requester = msg_decoder(payload)
+    interval_requested = requester['interval']
+    print("Request enviada por: ", first_level, "\nMensagem: ", requester)
  
     #define o intervalo solicitado:
-    interval, datetime_inicial, datetime_final = time_interval(payload)
+    datetime_inicial, datetime_final = time_interval(interval_requested)
 
     # Consulta o DB e filtra os arquivos solicitados:
     filename = catch_files(datetime_inicial, datetime_final)
